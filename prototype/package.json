@@ -1,0 +1,22 @@
+{
+  "name": "haloview-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WebXR prototype for HaloView multi-panel VR coding platform",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "signal-server": "node src/signaling/server.js",
+    "electron": "cd electron && npx electron ."
+  },
+  "dependencies": {
+    "three": "^0.170.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.1.4",
+    "vite": "^6.0.0"
+  }
+}

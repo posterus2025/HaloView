@@ -1,0 +1,49 @@
+# Build outputs
+build/
+dist/
+*.obj
+*.exe
+*.dll
+*.so
+*.apk
+
+# Node
+node_modules/
+prototype/node_modules/
+
+# IDE
+.vs/
+.vscode/settings.json
+*.user
+*.suo
+*.sln.docstates
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Secrets / keys
+*.keystore
+*.jks
+*.pem
+*.key
+
+# Logs
+*.log
+
+# Debug / scratch
+scratch/
+
+# Vite
+prototype/.vite/
+
+# Windows special files
+nul
+
+# Local IDE / Claude settings
+.claude/settings.local.json
+
+# Android
+quest-app/.gradle/
+quest-app/local.properties

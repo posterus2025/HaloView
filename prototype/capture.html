@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HaloView — PC Capture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #141422;
+      color: #e0e0e0;
+      font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+      padding: 20px;
+    }
+    h1 { color: #5599ff; font-size: 20px; margin-bottom: 4px; }
+    .subtitle { color: #999; font-size: 12px; margin-bottom: 16px; }
+
+    .toolbar {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    #status {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px;
+      padding: 8px 12px; border-radius: 6px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid #333;
+    }
+    #status .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #f55; flex-shrink: 0;
+    }
+    #status .dot.connected { background: #5f5; }
+    #status .dot.connecting { background: #fb0; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.3; } }
+
+    .add-btn {
+      padding: 8px 16px; font-size: 13px; cursor: pointer;
+      border: 2px solid #5599ff; border-radius: 4px;
+      background: rgba(85,153,255,0.1); color: #5599ff;
+      font-family: inherit; font-weight: bold; transition: all 0.15s;
+    }
+    .add-btn:hover { background: #5599ff; color: #000; }
+    .add-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .add-btn:disabled:hover { background: rgba(85,153,255,0.1); color: #5599ff; }
+    .panel-count { font-size: 12px; color: #888; }
+
+    .panels {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 12px;
+    }
+    .panel-card {
+      border: 1px solid #3a3a50;
+      border-radius: 8px;
+      padding: 12px;
+      background: #1a1a2e;
+    }
+    .panel-card.active { border-color: #5599ff; box-shadow: 0 0 12px rgba(85,153,255,0.15); }
+    .panel-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .panel-name {
+      font-size: 13px; font-weight: bold;
+      background: none; border: none; color: #e0e0e0;
+      font-family: inherit; padding: 2px 4px; border-radius: 3px;
+      width: 140px;
+    }
+    .panel-name:focus { outline: 1px solid #5599ff; background: #252540; }
+    .panel-id { font-size: 10px; color: #666; }
+    .panel-preview {
+      width: 100%;
+      aspect-ratio: 16/10;
+      background: #0a0a14;
+      border: 1px solid #2a2a3a;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .panel-preview video {
+      width: 100%; height: 100%; object-fit: contain;
+    }
+    .panel-preview .placeholder { color: #556; font-size: 11px; }
+    .panel-actions { display: flex; gap: 6px; }
+    .panel-actions button {
+      flex: 1;
+      padding: 6px 10px; font-size: 11px; cursor: pointer;
+      border: 1px solid #4a4a60; border-radius: 4px;
+      background: #252540; color: #ccc;
+      font-family: inherit; transition: all 0.15s;
+    }
+    .panel-actions button:hover { background: #5599ff; color: #000; border-color: #5599ff; }
+    .panel-actions button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .panel-actions button:disabled:hover { background: #252540; color: #ccc; border-color: #4a4a60; }
+    .panel-actions .remove-btn { border-color: #744; flex: 0 0 auto; width: 32px; color: #e88; }
+    .panel-actions .remove-btn:hover { background: #f44; border-color: #f44; color: #000; }
+
+    #log {
+      margin-top: 16px;
+      padding: 8px 10px;
+      background: #0e0e1a;
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      font-size: 10px;
+      color: #999;
+      max-height: 140px;
+      overflow-y: auto;
+      line-height: 1.5;
+    }
+    #log .info { color: #5599ff; }
+    #log .warn { color: #fb0; }
+    #log .err { color: #f66; }
+  </style>
+</head>
+<body>
+  <h1>HaloView — PC Capture</h1>
+  <div class="subtitle">Capture screens/windows to stream to Quest 3. Each capture becomes a panel in VR.</div>
+
+  <div class="toolbar">
+    <div id="status">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">Connecting...</span>
+    </div>
+    <button class="add-btn" id="addPanelBtn">+ Add Panel</button>
+    <span class="panel-count" id="panelCount">0 / 16 panels</span>
+  </div>
+
+  <div class="panels" id="panelGrid"></div>
+  <div id="log"></div>
+
+  <script type="module">
+    import { CaptureClient } from './src/streaming/CaptureClient.js';
+
+    (async () => {
+      const MAX_PANELS = 16;
+      let nextId = 1;
+
+      const grid = document.getElementById('panelGrid');
+      const panelCards = new Map(); // panelId -> { card, stream? }
+      const logEl = document.getElementById('log');
+      const addBtn = document.getElementById('addPanelBtn');
+      const panelCountEl = document.getElementById('panelCount');
+
+      function log(msg, level = 'info') {
+        const line = document.createElement('div');
+        line.className = level;
+        const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+        line.textContent = `[${ts}] ${msg}`;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      // Intercept console for capture-related logs
+      const origLog = console.log;
+      const origWarn = console.warn;
+      const origErr = console.error;
+      console.log = (...args) => { origLog(...args); if (args[0]?.includes?.('[Capture]')) log(args.join(' ')); };
+      console.warn = (...args) => { origWarn(...args); if (args[0]?.includes?.('[Capture]')) log(args.join(' '), 'warn'); };
+      console.error = (...args) => { origErr(...args); log(args.join(' '), 'err'); };
+
+      function updateCount() {
+        const n = panelCards.size;
+        panelCountEl.textContent = `${n} / ${MAX_PANELS} panels`;
+        addBtn.disabled = n >= MAX_PANELS;
+      }
+
+      // Connect to signaling server (proxied through Vite on same port)
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const signalingUrl = `${proto}://${location.host}/signal`;
+      const capture = new CaptureClient(signalingUrl);
+
+      const statusDot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+
+      function setStatus(state, text) {
+        statusDot.className = `dot ${state}`;
+        statusText.textContent = text;
+      }
+
+      setStatus('connecting', 'Connecting...');
+
+      try {
+        await capture.connect();
+        setStatus('connected', `Connected (peer #${capture.peerId})`);
+        log(`Connected as capture peer #${capture.peerId}`);
+      } catch (err) {
+        setStatus('', `Disconnected: ${err.message}`);
+        log(`Signaling server not reachable. Start it with: npm run signal-server`, 'err');
+      }
+
+      function createPanelCard(panelId, label) {
+        const card = document.createElement('div');
+        card.className = 'panel-card';
+        card.dataset.panelId = panelId;
+        card.innerHTML = `
+          <div class="panel-header">
+            <input class="panel-name" value="${label}" spellcheck="false" />
+            <span class="panel-id">#${panelId}</span>
+          </div>
+          <div class="panel-preview">
+            <span class="placeholder">Click capture to start</span>
+          </div>
+          <div class="panel-actions">
+            <button class="capture-btn">Capture</button>
+            <button class="stop-btn" disabled>Stop</button>
+            <button class="remove-btn" title="Remove panel">x</button>
+          </div>
+        `;
+
+        const preview = card.querySelector('.panel-preview');
+        const captureBtn = card.querySelector('.capture-btn');
+        const stopBtn = card.querySelector('.stop-btn');
+        const removeBtn = card.querySelector('.remove-btn');
+
+        captureBtn.addEventListener('click', async () => {
+          try {
+            log(`Capturing screen for panel #${panelId}...`);
+            const stream = await capture.captureScreen(panelId);
+
+            preview.innerHTML = '';
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            video.autoplay = true;
+            video.muted = true;
+            video.playsInline = true;
+            preview.appendChild(video);
+
+            card.classList.add('active');
+            captureBtn.disabled = true;
+            stopBtn.disabled = false;
+
+            stream.getVideoTracks()[0].addEventListener('ended', () => {
+              resetCard();
+              log(`Stream ended for panel #${panelId}`, 'warn');
+            });
+
+            log(`Panel #${panelId} streaming`);
+          } catch (err) {
+            if (err.name === 'NotAllowedError') {
+              log(`Capture cancelled for panel #${panelId}`, 'warn');
+            } else {
+              log(`Capture failed: ${err.message}`, 'err');
+            }
+          }
+        });
+
+        function resetCard() {
+          preview.innerHTML = '<span class="placeholder">Click capture to start</span>';
+          card.classList.remove('active');
+          captureBtn.disabled = false;
+          stopBtn.disabled = true;
+        }
+
+        stopBtn.addEventListener('click', () => {
+          const stream = capture.streams.get(panelId);
+          if (stream) {
+            stream.getTracks().forEach(t => t.stop());
+            capture.streams.delete(panelId);
+          }
+          resetCard();
+          log(`Stopped panel #${panelId}`);
+        });
+
+        removeBtn.addEventListener('click', () => {
+          const stream = capture.streams.get(panelId);
+          if (stream) {
+            stream.getTracks().forEach(t => t.stop());
+            capture.streams.delete(panelId);
+          }
+          card.remove();
+          panelCards.delete(panelId);
+          updateCount();
+          log(`Removed panel #${panelId}`);
+        });
+
+        grid.appendChild(card);
+        panelCards.set(panelId, card);
+        updateCount();
+        return card;
+      }
+
+      // Add Panel button
+      addBtn.addEventListener('click', () => {
+        if (panelCards.size >= MAX_PANELS) return;
+        const panelId = `panel-${nextId++}`;
+        const label = `Window ${panelCards.size + 1}`;
+        createPanelCard(panelId, label);
+        log(`Added panel #${panelId}`);
+      });
+
+      // Start with one panel ready
+      createPanelCard(`panel-${nextId++}`, 'Window 1');
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HaloView Capture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #141422;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', 'JetBrains Mono', monospace;
+      padding: 16px;
+      font-size: 13px;
+    }
+    h1 { color: #5599ff; font-size: 18px; margin-bottom: 4px; }
+    .subtitle { color: #888; font-size: 11px; margin-bottom: 12px; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px; border-radius: 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid #2a2a3a;
+      margin-bottom: 12px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #f55; flex-shrink: 0; }
+    .dot.connected { background: #5f5; }
+    .dot.connecting { background: #fb0; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.3; } }
+
+    .stats { display: flex; gap: 16px; color: #888; font-size: 11px; margin-left: auto; }
+
+    .section-title { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin: 12px 0 6px; }
+
+    .active-panels {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      min-height: 28px; align-items: center;
+    }
+    .panel-tag {
+      padding: 3px 8px; border-radius: 3px; font-size: 11px;
+      background: #1e3a5f; color: #88bbff; border: 1px solid #2a4a6f;
+    }
+    .panel-tag .name { font-weight: bold; }
+    .no-panels { color: #555; font-style: italic; font-size: 11px; }
+
+    .window-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+      margin-bottom: 12px;
+    }
+    .win-card {
+      border: 1px solid #2a2a3a; border-radius: 6px;
+      padding: 6px; background: #1a1a2e;
+      font-size: 10px; color: #aaa;
+    }
+    .win-card img { width: 100%; border-radius: 3px; margin-bottom: 4px; }
+    .win-card .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    #log {
+      padding: 8px 10px;
+      background: #0e0e1a;
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      font-size: 10px;
+      color: #999;
+      max-height: 160px;
+      overflow-y: auto;
+      line-height: 1.5;
+      font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+    }
+    #log .info { color: #5599ff; }
+    #log .warn { color: #fb0; }
+    #log .err { color: #f66; }
+  </style>
+</head>
+<body>
+  <h1>HaloView Capture</h1>
+  <div class="subtitle">PC companion — streams windows to Quest 3 via WebRTC</div>
+
+  <div class="status-bar">
+    <div class="dot connecting" id="statusDot"></div>
+    <span id="statusText">Connecting...</span>
+    <div class="stats">
+      <span>Windows: <strong id="windowCount">0</strong></span>
+      <span>Streaming: <strong id="streamCount">0</strong></span>
+    </div>
+  </div>
+
+  <div class="section-title">Active Panels</div>
+  <div class="active-panels" id="activePanels">
+    <span class="no-panels">No panels streaming yet. Select windows from Quest 3.</span>
+  </div>
+
+  <div class="section-title">Available Windows</div>
+  <div class="window-grid" id="windowGrid"></div>
+
+  <div class="section-title">Log</div>
+  <div id="log"></div>
+
+  <script type="module">
+    import { ElectronCaptureClient } from '../lib/ElectronCaptureClient.js';
+
+    const logEl = document.getElementById('log');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const windowCount = document.getElementById('windowCount');
+    const streamCount = document.getElementById('streamCount');
+    const activePanels = document.getElementById('activePanels');
+    const windowGrid = document.getElementById('windowGrid');
+
+    function log(msg, level = 'info') {
+      const line = document.createElement('div');
+      line.className = level;
+      const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+      line.textContent = `[${ts}] ${msg}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    const capture = new ElectronCaptureClient('ws://localhost:8080');
+
+    capture.onLog = (msg, level) => log(msg, level);
+
+    capture.onStatusChange = (state, text) => {
+      statusDot.className = `dot ${state}`;
+      statusText.textContent = text;
+    };
+
+    // Render the window grid whenever enumeration completes
+    function renderWindows(windows) {
+      windowGrid.innerHTML = '';
+      windowCount.textContent = windows.length;
+      for (const win of windows) {
+        const card = document.createElement('div');
+        card.className = 'win-card';
+        card.innerHTML = `
+          <img src="${win.thumbnail}" alt="${win.name}" />
+          <div class="name" title="${win.name}">${win.name}</div>
+        `;
+        windowGrid.appendChild(card);
+      }
+    }
+
+    // Update active panels display
+    function updatePanels() {
+      const panels = Array.from(capture.streams.keys());
+      streamCount.textContent = panels.length;
+      if (panels.length === 0) {
+        activePanels.innerHTML = '<span class="no-panels">No panels streaming yet. Select windows from Quest 3.</span>';
+      } else {
+        activePanels.innerHTML = panels.map(id =>
+          `<span class="panel-tag"><span class="name">${id}</span></span>`
+        ).join('');
+      }
+    }
+
+    // Poll window list and update UI
+    const POLL_INTERVAL = 5000;
+    async function pollLoop() {
+      try {
+        const windows = await capture.enumerateWindows();
+        renderWindows(windows);
+      } catch (err) {
+        log(`Poll error: ${err.message}`, 'err');
+      }
+    }
+
+    try {
+      statusDot.className = 'dot connecting';
+      await capture.connect();
+      capture.startWindowPolling(POLL_INTERVAL);
+
+      // Also render locally
+      pollLoop();
+      setInterval(() => { pollLoop(); updatePanels(); }, POLL_INTERVAL);
+    } catch (err) {
+      log(`Failed to connect: ${err.message}`, 'err');
+      statusDot.className = 'dot';
+      statusText.textContent = 'Disconnected — start signaling server first';
+    }
+  </script>
+</body>
+</html>
