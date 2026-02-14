@@ -1,5 +1,14 @@
 # HaloView - Multi-Window VR Coding Platform
 
+## Current Status
+<!-- Claude: update this section before ending any session -->
+- **Phase:** 1 — VR Panel Interaction
+- **Next task:** 1.1 — Grip + thumbstick Y = resize (InputManager.js, PanelManager.js)
+- **Last completed:** Image quality fixed (XRQuadLayer primary), first commit pushed to posterus2025/HaloView
+- **Last commit:** `bbecf30` — Initial commit
+- **Roadmap:** See `docs/MASTER-PLAN.md` for full 5-phase plan
+- **Checkpoint:** When user says "save checkpoint", update this section + commit
+
 ## Overview
 Streams virtual desktops from AMD Strix Halo PC to Meta Quest 3 via WebRTC. Users select windows from within VR using a 3D picker — no manual screen sharing dialogs needed.
 
