@@ -36,11 +36,11 @@ Fix how users manipulate virtual panels in VR space.
 
 | # | Task | Status | Details |
 |---|------|--------|---------|
-| 1.1 | Grip + thumbstick Y = resize (single-hand) | `TODO` | Remap: Y=scale, X=push/pull. Aspect-locked. Clamp 0.3–1.8m. Rebuild geometry on grip release. |
+| 1.1 | Grip + thumbstick Y = resize (single-hand) | `DONE` | Remap: Y=scale, X=push/pull. Aspect-locked. Clamp 0.3–1.8m. Throttled geometry rebuild + scale preview. |
 | 1.2 | Two-handed pinch-to-resize | `TODO` | Both grips on same panel → scale by inter-hand distance. Move to midpoint. Release one → single-hand grab. |
-| 1.3 | Interaction mode toggle | `TODO` | "Move" mode (default): trigger+grip manipulate panels. "Interact" mode: trigger sends mouse to PC. Toggle via A/X long-press. HUD shows mode. Laser color changes. |
-| 1.4 | Update HUD to show current mode | `TODO` | Display "MOVE" or "INTERACT" on wrist HUD. Color-coded. |
-| 1.5 | Mouse+keyboard controls windows on PC | `TODO` | Already works natively (Electron captures specific windows). Just need to stop VR controllers from sending mouse events in Move mode. |
+| 1.3 | Interaction mode toggle | `DONE` | A/X long-press (500ms) toggles Move/Interact. Laser: blue (move) / orange (interact). Trigger gated by mode. |
+| 1.4 | Update HUD to show current mode | `DONE` | Mode badge on wrist HUD (blue MOVE / orange INTERACT). Control labels update per mode. |
+| 1.5 | Mouse+keyboard controls windows on PC | `DONE` | Move mode: trigger/mousemove/scroll disabled on panels. Interact mode: forwarded to PC. |
 
 **Files to modify:**
 - `prototype/src/input/InputManager.js` — mode toggle, resize logic, two-hand grab

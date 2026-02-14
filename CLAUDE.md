@@ -3,9 +3,9 @@
 ## Current Status
 <!-- Claude: update this section before ending any session -->
 - **Phase:** 1 — VR Panel Interaction
-- **Next task:** 1.1 — Grip + thumbstick Y = resize (InputManager.js, PanelManager.js)
-- **Last completed:** Image quality fixed (XRQuadLayer primary), first commit pushed to posterus2025/HaloView
-- **Last commit:** `bbecf30` — Initial commit
+- **Next task:** 1.2 — Two-handed pinch-to-resize (design ready, not yet implemented)
+- **Last completed:** Phase 1 tasks 1.1, 1.3, 1.4 — grip resize, mode toggle, HUD update
+- **Last commit:** `2ffcd86` — Phase 1: grip resize + Move/Interact mode toggle
 - **Roadmap:** See `docs/MASTER-PLAN.md` for full 5-phase plan
 - **Checkpoint:** When user says "save checkpoint", update this section + commit
 
