@@ -48,8 +48,20 @@ export class InputManager {
     this.exitButton = null;
     this._addPanelButton = null;
 
+    // Interaction mode: 'move' = manipulate panels, 'interact' = send input to PC
+    this._interactionMode = 'move';
+
+    // A/X long-press detection
+    this._axPressStart = [0, 0];
+    this._axWasPressed = [false, false];
+    this._axLongPressMs = 500; // 500ms = mode toggle, shorter = picker toggle
+
+    // Resize state (while grabbing)
+    this._pendingResizeHeight = null;
+    this._lastResizeRebuildTime = 0;
+    this._resizeThrottleMs = 200;
+
     // Button polling state
-    this._prevA4State = [false, false]; // A/X for picker toggle
     this._byPressStart = [0, 0]; // B/Y press timestamps for long-press detection
     this._byWasPressed = [false, false];
     this._byLongPressMs = 1500; // Hold 1.5s to exit VR
@@ -68,6 +80,9 @@ export class InputManager {
 
     // Controls HUD (attached to left controller)
     this._controlsHUD = null;
+    this._hudCanvas = null;
+    this._hudCtx = null;
+    this._hudTexture = null;
   }
 
   // ── Head tracking helpers ──────────────────────────────────────────
@@ -179,10 +194,33 @@ export class InputManager {
    * Create a controls reference HUD attached to the left controller.
    */
   _createControlsHUD(parentController) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 280;
-    canvas.height = 200;
-    const ctx = canvas.getContext('2d');
+    this._hudCanvas = document.createElement('canvas');
+    this._hudCanvas.width = 280;
+    this._hudCanvas.height = 200;
+    this._hudCtx = this._hudCanvas.getContext('2d');
+
+    this._hudTexture = new THREE.CanvasTexture(this._hudCanvas);
+    const geom = new THREE.PlaneGeometry(0.18, 0.13);
+    const mat = new THREE.MeshBasicMaterial({
+      map: this._hudTexture,
+      transparent: true,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    });
+    this._controlsHUD = new THREE.Mesh(geom, mat);
+    this._controlsHUD.position.set(0, 0.08, 0.02);
+    this._controlsHUD.rotation.set(-1.0, 0, 0);
+    this._controlsHUD.renderOrder = 999;
+    parentController.add(this._controlsHUD);
+
+    this._renderControlsHUD();
+    console.log('[Input] Controls HUD created and attached to controller');
+  }
+
+  _renderControlsHUD() {
+    const ctx = this._hudCtx;
+    const canvas = this._hudCanvas;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Background
     ctx.fillStyle = 'rgba(16, 16, 40, 0.92)';
@@ -195,10 +233,25 @@ export class InputManager {
     this._roundRect(ctx, 0, 0, 280, 200, 8);
     ctx.stroke();
 
-    // Title
-    ctx.fillStyle = '#5599ff';
+    // Title with mode badge
+    const isMove = this._interactionMode === 'move';
+    ctx.fillStyle = isMove ? '#5599ff' : '#ff8844';
     ctx.font = 'bold 16px monospace';
     ctx.fillText('HaloView', 12, 24);
+
+    // Mode badge
+    const modeText = isMove ? 'MOVE' : 'INTERACT';
+    const badgeColor = isMove ? '#2244aa' : '#aa4422';
+    const textColor = isMove ? '#88bbff' : '#ffaa77';
+    ctx.fillStyle = badgeColor;
+    ctx.beginPath();
+    this._roundRect(ctx, 160, 8, 108, 22, 4);
+    ctx.fill();
+    ctx.fillStyle = textColor;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(modeText, 214, 23);
+    ctx.textAlign = 'left';
 
     // Divider
     ctx.strokeStyle = '#334488';
@@ -207,42 +260,42 @@ export class InputManager {
     ctx.lineTo(268, 34);
     ctx.stroke();
 
-    // Control lines
-    const controls = [
-      ['Trigger', 'Click / Select'],
-      ['Grip', 'Grab & Move'],
-      ['A / X', 'Add Window'],
-      ['B / Y', 'Recenter View'],
-      ['Stick \u2195', 'Scroll / Distance'],
-      ['Stick \u2194', 'Rotate (grab)'],
-      ['Hold B/Y', 'Exit VR'],
-    ];
+    // Control lines — change based on mode
+    const controls = isMove
+      ? [
+          ['Trigger', '(no action)'],
+          ['Grip', 'Grab & Move'],
+          ['Stick \u2195', 'Resize (grab)'],
+          ['Stick \u2194', 'Distance (grab)'],
+          ['A / X', 'Add Window'],
+          ['Hold A/X', 'Switch Mode'],
+          ['B / Y', 'Recenter View'],
+        ]
+      : [
+          ['Trigger', 'Click Panel'],
+          ['Grip', 'Grab & Move'],
+          ['Stick \u2195', 'Scroll / Resize'],
+          ['Stick \u2194', 'Distance (grab)'],
+          ['A / X', 'Add Window'],
+          ['Hold A/X', 'Switch Mode'],
+          ['B / Y', 'Recenter View'],
+        ];
 
     ctx.font = '12px monospace';
     controls.forEach(([key, desc], i) => {
       const y = 54 + i * 22;
-      ctx.fillStyle = '#77aaff';
+      ctx.fillStyle = isMove ? '#77aaff' : '#ffaa77';
       ctx.fillText(key, 12, y);
       ctx.fillStyle = '#999';
       ctx.fillText(desc, 105, y);
     });
 
-    const texture = new THREE.CanvasTexture(canvas);
-    // Larger HUD for readability in VR
-    const geom = new THREE.PlaneGeometry(0.18, 0.13);
-    const mat = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-      side: THREE.DoubleSide,
-    });
-    this._controlsHUD = new THREE.Mesh(geom, mat);
-    // Position above the wrist, angled toward user
-    this._controlsHUD.position.set(0, 0.08, 0.02);
-    this._controlsHUD.rotation.set(-1.0, 0, 0);
-    this._controlsHUD.renderOrder = 999;
-    parentController.add(this._controlsHUD);
-    console.log('[Input] Controls HUD created and attached to controller');
+    this._hudTexture.needsUpdate = true;
+  }
+
+  _updateControlsHUD() {
+    if (!this._hudCtx) return;
+    this._renderControlsHUD();
   }
 
   // ── Controller setup ───────────────────────────────────────────────
@@ -330,30 +383,31 @@ export class InputManager {
       }
     }
 
-    // Check panels
-    const hit = this._raycastPanel(controllerIndex);
-    if (hit) {
-      const uv = this.panelManager.getHitUV(hit.intersection);
+    // Check panels — only forward mouse events in Interact mode
+    if (this._interactionMode === 'interact') {
+      const hit = this._raycastPanel(controllerIndex);
+      if (hit) {
+        const uv = this.panelManager.getHitUV(hit.intersection);
 
-      // Forward mousedown to PC
-      this._activeClickPanel = hit.panel.id;
-      const channel = this.inputChannels.get(hit.panel.id);
-      if (channel?.readyState === 'open') {
-        channel.send(JSON.stringify({
-          type: 'mousedown',
-          panelId: hit.panel.id,
-          u: uv?.u,
-          v: uv?.v,
-          button: 0,
-        }));
+        this._activeClickPanel = hit.panel.id;
+        const channel = this.inputChannels.get(hit.panel.id);
+        if (channel?.readyState === 'open') {
+          channel.send(JSON.stringify({
+            type: 'mousedown',
+            panelId: hit.panel.id,
+            u: uv?.u,
+            v: uv?.v,
+            button: 0,
+          }));
+        }
+
+        this._flashPanel(hit.panel, 0xff8844); // orange flash in interact mode
       }
-
-      this._flashPanel(hit.panel, 0x66aaff);
     }
   }
 
   onSelectEnd(controllerIndex) {
-    if (this._activeClickPanel) {
+    if (this._interactionMode === 'interact' && this._activeClickPanel) {
       const channel = this.inputChannels.get(this._activeClickPanel);
       if (channel?.readyState === 'open') {
         channel.send(JSON.stringify({
@@ -389,6 +443,11 @@ export class InputManager {
 
   onSqueezeEnd(controllerIndex) {
     if (this.grabbedPanel && this.grabControllerIndex === controllerIndex) {
+      // Finalize any pending resize
+      if (this._pendingResizeHeight !== null) {
+        this.panelManager.resizePanel(this.grabbedPanel.id, this._pendingResizeHeight);
+        this._pendingResizeHeight = null;
+      }
       if (this.snapEnabled) {
         this._snapToGrid(this.grabbedPanel.mesh);
       }
@@ -480,7 +539,7 @@ export class InputManager {
         hitSomething = true;
 
         // Send continuous mouse position (throttled, not while grabbing)
-        if (sendMouse && !this.grabbedPanel) {
+        if (sendMouse && !this.grabbedPanel && this._interactionMode === 'interact') {
           const uv = this.panelManager.getHitUV(panelHit.intersection);
           if (uv) {
             const channel = this.inputChannels.get(panelHit.panel.id);
@@ -504,7 +563,8 @@ export class InputManager {
         positions.setZ(1, -hitDist);
         positions.needsUpdate = true;
       } else {
-        line.material.color.setHex(0x4488ff);
+        const baseColor = this._interactionMode === 'move' ? 0x4488ff : 0xff8844;
+        line.material.color.setHex(baseColor);
         line.material.opacity = 0.4;
         const positions = line.geometry.attributes.position;
         positions.setZ(1, -3);
@@ -521,6 +581,10 @@ export class InputManager {
   // ── Hover highlight ────────────────────────────────────────────────
 
   _updateHover(newMesh) {
+    // Skip hover scaling for grabbed panel (conflicts with resize preview)
+    if (newMesh && this.grabbedPanel && newMesh === this.grabbedPanel.mesh) {
+      newMesh = null;
+    }
     if (newMesh === this._hoveredMesh) return;
 
     if (this._hoveredMesh) {
@@ -551,7 +615,7 @@ export class InputManager {
     const sources = session.inputSources;
     if (!sources) return;
 
-    // When grabbing: push/pull (Y) and rotate (X)
+    // When grabbing: resize (Y) and push/pull distance (X)
     if (this.grabbedPanel && this.grabControllerIndex >= 0) {
       if (this.grabControllerIndex >= sources.length) return;
       const source = sources[this.grabControllerIndex];
@@ -562,41 +626,62 @@ export class InputManager {
       const thumbY = axes.length > 3 ? axes[3] : 0;
       const deadzone = 0.15;
 
-      // Push/pull: change distance from controller to panel
+      // Y axis: resize panel (aspect-locked)
       if (Math.abs(thumbY) > deadzone) {
+        const currentHeight = this.grabbedPanel.config.height;
+        const delta = thumbY * -0.008; // up = grow
+        const newHeight = THREE.MathUtils.clamp(
+          currentHeight + delta,
+          this.panelManager.minPanelHeight,
+          this.panelManager.maxPanelHeight
+        );
+
+        // Instant visual preview via mesh.scale (cheap, every frame)
+        const scaleFactor = newHeight / this.grabbedPanel.config.height;
+        this.grabbedPanel.mesh.scale.set(scaleFactor, scaleFactor, 1);
+        this._pendingResizeHeight = newHeight;
+
+        // Throttled geometry rebuild (expensive, every 200ms)
+        const now = Date.now();
+        if (now - this._lastResizeRebuildTime > this._resizeThrottleMs) {
+          this.panelManager.resizePanel(this.grabbedPanel.id, newHeight);
+          this._pendingResizeHeight = null;
+          this._lastResizeRebuildTime = now;
+        }
+      }
+
+      // X axis: push/pull distance from controller
+      if (Math.abs(thumbX) > deadzone) {
         const dir = this.grabOffset.clone().normalize();
         const currentDist = this.grabOffset.length();
         const newDist = THREE.MathUtils.clamp(
-          currentDist + thumbY * -0.015,
+          currentDist + thumbX * 0.015,
           0.3, 4.0
         );
         this.grabOffset.copy(dir.multiplyScalar(newDist));
       }
-
-      // Rotate panel around its Y axis
-      if (Math.abs(thumbX) > deadzone) {
-        this.grabbedPanel.mesh.rotation.y += thumbX * -0.02;
-      }
       return;
     }
 
-    // When not grabbing: scroll panel being pointed at
-    for (let i = 0; i < Math.min(sources.length, 2); i++) {
-      const source = sources[i];
-      if (!source?.gamepad) continue;
-      const axes = source.gamepad.axes;
-      const thumbY = axes.length > 3 ? axes[3] : 0;
+    // When not grabbing: scroll panel being pointed at (interact mode only)
+    if (this._interactionMode === 'interact') {
+      for (let i = 0; i < Math.min(sources.length, 2); i++) {
+        const source = sources[i];
+        if (!source?.gamepad) continue;
+        const axes = source.gamepad.axes;
+        const thumbY = axes.length > 3 ? axes[3] : 0;
 
-      if (Math.abs(thumbY) > 0.2) {
-        const hit = this._raycastPanel(i);
-        if (hit) {
-          const channel = this.inputChannels.get(hit.panel.id);
-          if (channel?.readyState === 'open') {
-            channel.send(JSON.stringify({
-              type: 'scroll',
-              panelId: hit.panel.id,
-              deltaY: Math.round(thumbY * 3),
-            }));
+        if (Math.abs(thumbY) > 0.2) {
+          const hit = this._raycastPanel(i);
+          if (hit) {
+            const channel = this.inputChannels.get(hit.panel.id);
+            if (channel?.readyState === 'open') {
+              channel.send(JSON.stringify({
+                type: 'scroll',
+                panelId: hit.panel.id,
+                deltaY: Math.round(thumbY * 3),
+              }));
+            }
           }
         }
       }
@@ -650,8 +735,12 @@ export class InputManager {
   /**
    * A/X button (index 4): toggle window picker.
    */
+  /**
+   * A/X button (index 4):
+   *   Short press (<500ms) = toggle window picker
+   *   Long press (>=500ms) = toggle interaction mode (move / interact)
+   */
   _checkPickerToggle() {
-    if (!this.windowPicker) return;
     const session = this.renderer.xr.getSession();
     if (!session) return;
 
@@ -663,17 +752,49 @@ export class InputManager {
       if (!gp || gp.buttons.length <= 4) continue;
 
       const pressed = gp.buttons[4].pressed;
-      if (this._prevA4State[i] && !pressed) {
-        this.windowPicker.toggle();
-        // Also recenter picker to current view
-        if (this.windowPicker.isVisible) {
-          this.windowPicker.group.position.copy(this._headPos);
-          this.windowPicker.group.position.y = 0; // Keep at ground level since cards offset from there
-        }
-        return;
+      const now = Date.now();
+
+      if (pressed && !this._axWasPressed[i]) {
+        // Button just pressed
+        this._axPressStart[i] = now;
       }
-      this._prevA4State[i] = pressed;
+
+      if (pressed && this._axWasPressed[i]) {
+        // Button held — check for long press
+        if (now - this._axPressStart[i] >= this._axLongPressMs) {
+          this._toggleInteractionMode();
+          this._axPressStart[i] = Infinity; // prevent re-trigger while held
+        }
+      }
+
+      if (!pressed && this._axWasPressed[i]) {
+        // Button released
+        if (now - this._axPressStart[i] < this._axLongPressMs) {
+          // Short press = toggle window picker
+          if (this.windowPicker) {
+            this.windowPicker.toggle();
+            if (this.windowPicker.isVisible) {
+              this.windowPicker.group.position.copy(this._headPos);
+              this.windowPicker.group.position.y = 0;
+            }
+          }
+        }
+      }
+
+      this._axWasPressed[i] = pressed;
     }
+  }
+
+  _toggleInteractionMode() {
+    this._interactionMode = this._interactionMode === 'move' ? 'interact' : 'move';
+    console.log(`[Input] Mode switched to: ${this._interactionMode.toUpperCase()}`);
+
+    const color = this._interactionMode === 'move' ? 0x4488ff : 0xff8844;
+    for (const { line } of this.controllers) {
+      line.material.color.setHex(color);
+    }
+
+    this._updateControlsHUD();
   }
 
   // ── Recenter ───────────────────────────────────────────────────────

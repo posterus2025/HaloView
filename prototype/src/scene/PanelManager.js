@@ -29,6 +29,10 @@ export class PanelManager {
     // 3.0m gives a subtle, natural curve (1.6m panel subtends ~30 deg). Was 0.9m (too aggressive).
     this.curveRadius = 3.0;
 
+    // Resize constraints
+    this.minPanelHeight = 0.3; // meters
+    this.maxPanelHeight = 1.8; // meters
+
     // Gaze-based focus tracking
     this._focusedPanelId = null;
     this._gazeDir = new THREE.Vector3();
@@ -341,6 +345,36 @@ export class PanelManager {
     const orientation = panel.config.width > panel.config.height ? 'landscape' : 'portrait';
     console.log(`[PanelManager] Toggled '${panelId}' to ${orientation} (${panel.config.width.toFixed(2)}x${panel.config.height.toFixed(2)})`);
     return orientation;
+  }
+
+  /**
+   * Resize a panel to a new height, maintaining aspect ratio.
+   * Geometry is rebuilt (not scaled) to maintain curved geometry integrity.
+   */
+  resizePanel(panelId, newHeight) {
+    const panel = this.panels.get(panelId);
+    if (!panel) return null;
+
+    newHeight = THREE.MathUtils.clamp(newHeight, this.minPanelHeight, this.maxPanelHeight);
+
+    const currentAspect = panel.config.width / panel.config.height;
+    const newWidth = newHeight * currentAspect;
+
+    panel.config.width = newWidth;
+    panel.config.height = newHeight;
+
+    panel.mesh.geometry.dispose();
+    if (panel.quadLayer) {
+      panel.mesh.geometry = new THREE.PlaneGeometry(newWidth, newHeight);
+      panel.quadLayer.width = newWidth;
+      panel.quadLayer.height = newHeight;
+    } else {
+      panel.mesh.geometry = this._createCurvedGeometry(newWidth, newHeight);
+    }
+
+    panel.mesh.scale.set(1, 1, 1);
+    console.log(`[PanelManager] Resized '${panelId}' to ${newWidth.toFixed(2)}x${newHeight.toFixed(2)}m`);
+    return { width: newWidth, height: newHeight };
   }
 
   /**
